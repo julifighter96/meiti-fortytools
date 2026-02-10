@@ -51,33 +51,6 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
   return payload;
 }
 
-function buildFacilityPayloadFromMeiti(contactData, projectData, customerId) {
-  if (!projectData) projectData = {};
-
-  if (!projectData.projectName && !projectData.address) {
-    return null;
-  }
-
-  const payload = {
-    customer_id: customerId,
-    name: projectData.projectName || 'Projekt ohne Namen',
-    street: projectData.address || contactData?.addressLine1 || undefined,
-    zip: projectData.postcode || contactData?.postCode || undefined,
-    city: projectData.city || contactData?.city || undefined
-  };
-
-  Object.keys(payload).forEach((key) => {
-    const val = payload[key];
-    if (val === undefined || val === null) {
-      delete payload[key];
-    } else if (typeof val === 'string' && val.trim() === '') {
-      delete payload[key];
-    }
-  });
-
-  return payload;
-}
-
 async function handleMeitiWebhook(req, res) {
   const requestId = req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const webhookToken = process.env.MEITI_WEBHOOK_TOKEN;
@@ -174,27 +147,7 @@ async function handleMeitiWebhook(req, res) {
       });
     }
 
-    // === 2. Projekt/Objekt in Fortytools anlegen (als Facility) ===
-    let facilityId = null;
-    const facilityPayload = buildFacilityPayloadFromMeiti(contactData, projectData, customerId);
-
-    if (facilityPayload) {
-      facilityId = await fortytoolsClient.findOrCreateFacilityForCustomer(
-        customerId,
-        facilityPayload,
-        requestId
-      );
-
-      log({
-        level: 'info',
-        message: 'facility_synced',
-        requestId,
-        customerId,
-        facilityId
-      });
-    }
-
-    // === 3. Antwort an meiti: crmContactId / crmProjectId zurückgeben ===
+    // === 2. Antwort an meiti: nur crmContactId zurückgeben (keine Projekte/Objekte) ===
     // Siehe meiti webhook docs: https://www.meiti.io/docs/webhook
     const responseBody = {
       requestContactUpdate: true,
@@ -202,13 +155,7 @@ async function handleMeitiWebhook(req, res) {
         crmContactId: String(customerId),
         crmAiInfo: 'Fortytools Kunde verknüpft'
       },
-      requestProjectUpdate: facilityId ? true : !!projectData,
-      projectData: facilityId
-        ? {
-            crmProjectId: String(facilityId),
-            crmAiInfo: 'Fortytools Projekt/Objekt (Facility) verknüpft'
-          }
-        : undefined
+      requestProjectUpdate: false
     };
 
     log({
