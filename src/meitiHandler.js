@@ -131,6 +131,13 @@ async function handleMeitiWebhook(req, res) {
 
     const customerPayload = buildCustomerPayloadFromMeiti(contactData, projectData);
 
+    log({
+      level: 'info',
+      message: 'fortytools_customer_payload_built',
+      requestId,
+      customerPayload
+    });
+
     if (customerId) {
       log({
         level: 'info',
