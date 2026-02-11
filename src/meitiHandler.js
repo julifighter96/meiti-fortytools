@@ -20,8 +20,8 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     name = `${contactData.firstName || ''} ${contactData.lastName || ''}`.trim();
   }
 
-  // Fortytools Pflichtfeld; Default per Env änderbar (z. B. "Lead", "Kunde" – je nach Fortytools-Config)
-  const customerState = process.env.FORTYTOOLS_DEFAULT_CUSTOMER_STATE || 'Lead';
+  // Fortytools Pflichtfeld: customer_state_id (Integer) – ID des Kundenstatus in Fortytools (z. B. 1 = Lead)
+  const customerStateId = 1;
 
   const payload = {
     email: contactData.email || undefined,
@@ -29,7 +29,7 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     first_name: contactData.firstName || undefined,
     last_name: contactData.lastName || undefined,
     name: name || undefined,
-    customer_state: customerState,
+    customer_state_id: customerStateId,
     street: contactData.addressLine1 || projectData.address || undefined,
     zip: contactData.postCode || projectData.postcode || undefined,
     city: contactData.city || projectData.city || undefined,
