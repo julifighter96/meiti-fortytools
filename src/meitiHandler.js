@@ -169,11 +169,24 @@ async function handleMeitiWebhook(req, res) {
       customerId = await fortytoolsClient.createCustomer(customerPayload, requestId);
 
       log({
-        level: 'info',
+        level: customerId != null ? 'info' : 'warn',
         message: 'customer_created',
         requestId,
         customerId
       });
+
+      if (customerId == null) {
+        log({
+          level: 'error',
+          message: 'customer_created_but_id_missing',
+          requestId,
+          hint: 'POST /customers war erfolgreich, aber die Kunden-ID konnte weder aus der Response noch per Suche ermittelt werden. Prüfe Fortytools-API-Response und Logs.'
+        });
+        return res.status(500).json({
+          error: 'processing_error',
+          message: 'Kunde wurde in Fortytools angelegt, Verknüpfung konnte nicht abgeschlossen werden (ID fehlt). Bitte Logs prüfen.'
+        });
+      }
     }
 
     // === 2. Antwort an meiti: nur crmContactId zurückgeben (keine Projekte/Objekte) ===

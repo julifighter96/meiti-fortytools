@@ -177,20 +177,68 @@ class FortytoolsClient {
   }
 
   async createCustomer(customerPayload, requestId) {
-    await this.request('POST', '/customers', {
+    const response = await this.request('POST', '/customers', {
       requestId,
       data: customerPayload
     });
 
-    // There is no explicit response schema for POST /customers, so we need to search again.
-    // Prefer searching by unique combination of email/phone.
-    const customerId = await this.findCustomerByContact({
+    // Viele APIs liefern bei 201 den angelegten Datensatz inkl. id – zuerst nutzen.
+    const idFromResponse =
+      response && (response.id !== undefined)
+        ? Number(response.id)
+        : response && response.data && (response.data.id !== undefined)
+          ? Number(response.data.id)
+          : null;
+    if (idFromResponse != null) {
+      log({
+        level: 'info',
+        message: 'fortytools_customer_created_from_response',
+        requestId,
+        customerId: idFromResponse
+      });
+      return idFromResponse;
+    }
+
+    // Fallback: Suche per Telefon/E-Mail (Suchindex kann verzögert sein).
+    let customerId = await this.findCustomerByContact({
       phone: customerPayload.phone || customerPayload.mobile,
       email: customerPayload.email,
       requestId
     });
+    if (customerId != null) {
+      log({
+        level: 'info',
+        message: 'fortytools_customer_id_from_search',
+        requestId,
+        customerId
+      });
+      return customerId;
+    }
 
-    return customerId;
+    // Einmal mit Verzögerung erneut suchen (Suchindex-Update).
+    await new Promise((r) => setTimeout(r, 1000));
+    customerId = await this.findCustomerByContact({
+      phone: customerPayload.phone || customerPayload.mobile,
+      email: customerPayload.email,
+      requestId
+    });
+    if (customerId != null) {
+      log({
+        level: 'info',
+        message: 'fortytools_customer_id_from_search_retry',
+        requestId,
+        customerId
+      });
+      return customerId;
+    }
+
+    log({
+      level: 'warn',
+      message: 'fortytools_customer_created_but_id_unknown',
+      requestId,
+      postResponseKeys: response ? Object.keys(response) : []
+    });
+    return null;
   }
 
   async updateCustomer(customerId, customerPayload, requestId) {
