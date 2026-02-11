@@ -71,6 +71,11 @@ async function handleMeitiWebhook(req, res) {
   const body = req.body || {};
   const { eventType, contactData, projectData } = body;
 
+  const isSupportedEvent =
+    eventType === 'Manual' ||
+    eventType === 4 ||
+    eventType === '4';
+
   log({
     level: 'info',
     message: 'meiti_webhook_received',
@@ -81,18 +86,19 @@ async function handleMeitiWebhook(req, res) {
     meitiProjectId: projectData && projectData.meitiProjectId
   });
 
-  // For now we only process Manual triggers, as requested.
-  if (eventType !== 'Manual') {
+  // For now we only process Manual triggers / type 4, as requested.
+  if (!isSupportedEvent) {
     log({
       level: 'info',
       message: 'meiti_event_ignored',
       requestId,
-      reason: 'unsupported_event_type'
+      reason: 'unsupported_event_type',
+      eventType
     });
 
     return res.status(200).json({
       message: 'event_type_ignored',
-      supportedEventTypes: ['Manual']
+      supportedEventTypes: ['Manual', 4]
     });
   }
 
