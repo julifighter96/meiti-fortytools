@@ -70,6 +70,17 @@ class FortytoolsClient {
 
     const url = `${FORTYTOOLS_BASE_URL}${path}`;
 
+    if (data != null) {
+      log({
+        level: 'info',
+        message: 'fortytools_request_body',
+        requestId,
+        method,
+        path,
+        body: data
+      });
+    }
+
     try {
       const resp = await axios.request({
         method,
@@ -85,17 +96,27 @@ class FortytoolsClient {
 
       return resp.data;
     } catch (err) {
+      const status = err.response && err.response.status;
+      const responseData = err.response && err.response.data;
       log({
         level: 'error',
         message: 'fortytools_request_error',
         requestId,
         method,
         url,
-        params,
+        ...(data != null ? { requestBody: data } : {}),
         error: err && err.message,
-        responseStatus: err.response && err.response.status,
-        responseData: err.response && err.response.data
+        responseStatus: status,
+        responseData
       });
+      if (status === 422 && responseData && responseData.errors) {
+        log({
+          level: 'error',
+          message: 'fortytools_validation_errors',
+          requestId,
+          validationErrors: responseData.errors
+        });
+      }
       throw err;
     }
   }
