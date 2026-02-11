@@ -28,7 +28,7 @@ Die Implementierung orientiert sich an der meiti Webhook-Doku (`https://www.meit
     - `crmContactId` = Fortytools `customer_id` (als String)
     - `crmProjectId` = Facility-ID (als String), falls eine Facility erzeugt / gefunden wurde
 
-Beispiel-Response an meiti:
+Beispiel-Response an meitis:
 
 ```json
 {
