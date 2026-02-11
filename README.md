@@ -71,6 +71,22 @@ Der Service lauscht dann z.B. auf `http://localhost:3000`.
 - Healthcheck: `GET /health`
 - Webhook: `POST /meiti/webhook`
 
+### Testen: Kundenstatus (customer_state)
+
+Damit neue Kunden in Fortytools angelegt werden können, muss ein gültiger **Kundenstatus** (customer_state) mitgeschickt werden. Der Service lädt die verfügbaren Status einmalig von der Fortytools-API und verwendet automatisch den **ersten Eintrag** als Standard.
+
+**Debug-Endpoint (nach Deploy oder lokal):**
+
+```text
+GET /debug/fortytools-customer-states
+```
+
+- Liefert die Liste aller Kundenstatus aus Fortytools (inkl. IDs und Namen).
+- Zeigt `default_id`: die ID, die der Webhook aktuell für neue Kunden verwendet.
+- Aufruf z.B. im Browser: `https://dein-service.up.railway.app/debug/fortytools-customer-states`
+
+So siehst du, welche IDs in deiner Fortytools-Instanz existieren und ob der automatisch gewählte Status passt. Bei jedem Webhook-Aufruf wird zudem geloggt: `fortytools_customer_state_used` mit `customerStateId` und der Anzahl der geladenen Status.
+
 ### Deployment bei Railway (Kurzüberblick)
 
 1. Neues Projekt bei Railway anlegen und dieses Git-Repository verbinden.

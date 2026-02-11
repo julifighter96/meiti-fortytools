@@ -7,7 +7,7 @@ function normalizePhone(raw) {
   return raw.replace(/[^+\d]/g, '');
 }
 
-function buildCustomerPayloadFromMeiti(contactData, projectData) {
+function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId) {
   if (!contactData) contactData = {};
   if (!projectData) projectData = {};
 
@@ -20,9 +20,9 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     name = `${contactData.firstName || ''} ${contactData.lastName || ''}`.trim();
   }
 
-  // Fortytools Pflichtfeld: Kundenstatus (ID 1). API erwartet offenbar verschachteltes Objekt.
-  const customerStateId = 1;
-  const customerState = { id: customerStateId };
+  // Fortytools Pflichtfeld: customer_state_id + customer_state (ID aus API, sonst Fallback 1)
+  const stateId = customerStateId != null ? Number(customerStateId) : 1;
+  const customerState = { id: stateId };
 
   const payload = {
     email: contactData.email || undefined,
@@ -30,7 +30,7 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     first_name: contactData.firstName || undefined,
     last_name: contactData.lastName || undefined,
     name: name || undefined,
-    customer_state_id: customerStateId,
+    customer_state_id: stateId,
     customer_state: customerState,
     street: contactData.addressLine1 || projectData.address || undefined,
     zip: contactData.postCode || projectData.postcode || undefined,
@@ -131,7 +131,17 @@ async function handleMeitiWebhook(req, res) {
       requestId
     });
 
-    const customerPayload = buildCustomerPayloadFromMeiti(contactData, projectData);
+    await fortytoolsClient.ensureCustomerStatesLoaded(requestId);
+    const customerStateId = fortytoolsClient.getDefaultCustomerStateId() ?? 1;
+    log({
+      level: 'info',
+      message: 'fortytools_customer_state_used',
+      requestId,
+      customerStateId,
+      availableStates: fortytoolsClient._customerStatesCache?.length ?? 0
+    });
+
+    const customerPayload = buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId);
 
     log({
       level: 'info',

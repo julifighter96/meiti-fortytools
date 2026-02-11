@@ -7,6 +7,32 @@ class FortytoolsClient {
   constructor() {
     this.token = null;
     this.tokenExpiresAt = 0;
+    this._customerStatesCache = null;
+  }
+
+  /** GET /customer_states – Liste der Kundenstatus (z. B. Lead, Kunde). Zum Testen und für gültige IDs. */
+  async getCustomerStates(requestId) {
+    const data = await this.request('GET', '/customer_states', {
+      requestId,
+      params: { limit: 50 }
+    });
+    const list = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : []);
+    return list;
+  }
+
+  /** Lädt einmalig die Kundenstatus und cached sie. */
+  async ensureCustomerStatesLoaded(requestId) {
+    if (this._customerStatesCache !== null) return this._customerStatesCache;
+    const list = await this.getCustomerStates(requestId);
+    this._customerStatesCache = list;
+    return list;
+  }
+
+  /** Gibt die ID des ersten Kundenstatus zurück (z. B. für neue Kunden), oder null wenn keine geladen. */
+  getDefaultCustomerStateId() {
+    if (!this._customerStatesCache || this._customerStatesCache.length === 0) return null;
+    const first = this._customerStatesCache[0];
+    return first != null && (first.id !== undefined) ? Number(first.id) : null;
   }
 
   async ensureAccessToken(requestId) {
