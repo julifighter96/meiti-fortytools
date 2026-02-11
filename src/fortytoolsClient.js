@@ -1,12 +1,10 @@
 const axios = require('axios');
-const { log } = require('./server');
+const { log } = require('./logger');
 
 const FORTYTOOLS_BASE_URL = process.env.FORTYTOOLS_BASE_URL || 'https://app.fortytools.com/api/v2';
 
 class FortytoolsClient {
   constructor() {
-    this.clientId = process.env.FORTYTOOLS_CLIENT_ID;
-    this.clientSecret = process.env.FORTYTOOLS_CLIENT_SECRET;
     this.token = null;
     this.tokenExpiresAt = 0;
   }
@@ -17,8 +15,13 @@ class FortytoolsClient {
       return this.token;
     }
 
-    if (!this.clientId || !this.clientSecret) {
-      throw new Error('FORTYTOOLS_CLIENT_ID or FORTYTOOLS_CLIENT_SECRET is missing');
+    const clientId = process.env.FORTYTOOLS_CLIENT_ID;
+    const clientSecret = process.env.FORTYTOOLS_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      const missing = [];
+      if (!clientId) missing.push('FORTYTOOLS_CLIENT_ID');
+      if (!clientSecret) missing.push('FORTYTOOLS_CLIENT_SECRET');
+      throw new Error(`Fortytools credentials missing. Set in Railway Variables: ${missing.join(', ')}`);
     }
 
     try {
@@ -29,8 +32,8 @@ class FortytoolsClient {
       });
 
       const resp = await axios.post(`${FORTYTOOLS_BASE_URL}/token`, {
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
+        client_id: clientId,
+        client_secret: clientSecret,
         grant_type: 'client_credentials'
       }, {
         timeout: 5000
