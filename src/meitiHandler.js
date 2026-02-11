@@ -12,6 +12,7 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   if (!projectData) projectData = {};
 
   const phone = normalizePhone(contactData.phoneNumber);
+  const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
 
   // Decide what to use as main "name" in Fortytools:
   // Prefer company, otherwise "first last".
@@ -27,6 +28,7 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   const payload = {
     email: contactData.email || undefined,
     phone: phone || undefined,
+    mobile: (mobile || phone) || undefined,
     first_name: contactData.firstName || undefined,
     last_name: contactData.lastName || undefined,
     name: name || undefined,
@@ -55,6 +57,19 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   });
 
   return payload;
+}
+
+/** Inhalt für die Notiz bei bestehendem Kontakt (Meiti-Übertragung). */
+function buildNoteContentFromMeiti(contactData, projectData) {
+  const parts = [];
+  parts.push(`Meiti-Übertragung am ${new Date().toLocaleString('de-DE')}`);
+  const planning = (projectData && (projectData.currentSummary || projectData.inquirySummary)) ||
+    (contactData && contactData.crmInternalInfo);
+  if (planning && String(planning).trim()) {
+    parts.push('');
+    parts.push(String(planning).trim());
+  }
+  return parts.join('\n');
 }
 
 async function handleMeitiWebhook(req, res) {
@@ -121,12 +136,14 @@ async function handleMeitiWebhook(req, res) {
   }
 
   const phone = normalizePhone(contactData.phoneNumber);
+  const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
   const email = contactData.email;
 
   try {
     // === 1. Customer in Fortytools finden oder anlegen ===
     let customerId = await fortytoolsClient.findCustomerByContact({
       phone,
+      mobile: mobile || undefined,
       email,
       requestId
     });
@@ -159,6 +176,25 @@ async function handleMeitiWebhook(req, res) {
       });
 
       await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
+
+      const noteContent = buildNoteContentFromMeiti(contactData, projectData);
+      try {
+        await fortytoolsClient.createCustomerNote(customerId, noteContent, requestId);
+        log({
+          level: 'info',
+          message: 'customer_note_created',
+          requestId,
+          customerId
+        });
+      } catch (noteErr) {
+        log({
+          level: 'warn',
+          message: 'customer_note_failed',
+          requestId,
+          customerId,
+          error: noteErr && noteErr.message
+        });
+      }
     } else {
       log({
         level: 'info',

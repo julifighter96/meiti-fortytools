@@ -147,29 +147,35 @@ class FortytoolsClient {
     }
   }
 
-  // Search existing customer by phone or email
-  async findCustomerByContact({ phone, email, requestId }) {
-    const searchTerm = phone || email;
-    if (!searchTerm) return null;
+  /**
+   * Sucht einen bestehenden Kunden in Fortytools.
+   * Prüft nacheinander: Telefon (phone), Mobil (mobile), E-Mail.
+   * API: GET /search/global?q=<term>&types=Customer – durchsucht u. a. phone- und mobile-Felder.
+   */
+  async findCustomerByContact({ phone, mobile, email, requestId }) {
+    const terms = [phone, mobile, email].filter(Boolean);
+    const seen = new Set();
+    for (const term of terms) {
+      const key = String(term).trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
 
-    const data = await this.request('GET', '/search/global', {
-      requestId,
-      params: {
-        q: searchTerm,
-        types: 'Customer'
-      }
-    });
+      const data = await this.request('GET', '/search/global', {
+        requestId,
+        params: {
+          q: key,
+          types: 'Customer'
+        }
+      });
 
-    if (!Array.isArray(data) || data.length === 0) {
-      return null;
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      const entry = data[0];
+      if (entry.searchable_type !== 'Customer') continue;
+
+      return entry.searchable_id;
     }
-
-    const entry = data[0];
-    if (entry.searchable_type !== 'Customer') {
-      return null;
-    }
-
-    return entry.searchable_id;
+    return null;
   }
 
   async getCustomer(customerId, requestId) {
@@ -199,9 +205,10 @@ class FortytoolsClient {
       return idFromResponse;
     }
 
-    // Fallback: Suche per Telefon/E-Mail (Suchindex kann verzögert sein).
+    // Fallback: Suche per Telefon, Mobil, E-Mail (Suchindex kann verzögert sein).
     let customerId = await this.findCustomerByContact({
-      phone: customerPayload.phone || customerPayload.mobile,
+      phone: customerPayload.phone,
+      mobile: customerPayload.mobile,
       email: customerPayload.email,
       requestId
     });
@@ -218,7 +225,8 @@ class FortytoolsClient {
     // Einmal mit Verzögerung erneut suchen (Suchindex-Update).
     await new Promise((r) => setTimeout(r, 1000));
     customerId = await this.findCustomerByContact({
-      phone: customerPayload.phone || customerPayload.mobile,
+      phone: customerPayload.phone,
+      mobile: customerPayload.mobile,
       email: customerPayload.email,
       requestId
     });
@@ -245,6 +253,23 @@ class FortytoolsClient {
     await this.request('PATCH', `/customers/${customerId}`, {
       requestId,
       data: customerPayload
+    });
+  }
+
+  /**
+   * Erstellt eine Notiz/Timeline-Eintrag beim bestehenden Kunden (z. B. bei Meiti-Übertragung).
+   * Verwendet POST /events; bei anderem API-Schema (422) Logs prüfen und Payload anpassen.
+   */
+  async createCustomerNote(customerId, noteText, requestId) {
+    if (!noteText || String(noteText).trim() === '') return;
+    const body = {
+      attachable_type: 'Customer',
+      attachable_id: Number(customerId),
+      text: String(noteText).trim()
+    };
+    await this.request('POST', '/events', {
+      requestId,
+      data: body
     });
   }
 
