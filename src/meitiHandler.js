@@ -20,8 +20,9 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     name = `${contactData.firstName || ''} ${contactData.lastName || ''}`.trim();
   }
 
-  // Fortytools Pflichtfeld: customer_state_id (Integer) – ID des Kundenstatus in Fortytools (z. B. 1 = Lead)
+  // Fortytools Pflichtfeld: Kundenstatus (ID 1). API erwartet offenbar verschachteltes Objekt.
   const customerStateId = 1;
+  const customerState = { id: customerStateId };
 
   const payload = {
     email: contactData.email || undefined,
@@ -30,6 +31,7 @@ function buildCustomerPayloadFromMeiti(contactData, projectData) {
     last_name: contactData.lastName || undefined,
     name: name || undefined,
     customer_state_id: customerStateId,
+    customer_state: customerState,
     street: contactData.addressLine1 || projectData.address || undefined,
     zip: contactData.postCode || projectData.postcode || undefined,
     city: contactData.city || projectData.city || undefined,
