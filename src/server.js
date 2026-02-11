@@ -1,8 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const { log } = require('./logger');
 
 const { handleMeitiWebhook } = require('./meitiHandler');
 
@@ -69,24 +68,6 @@ app.post('/meiti/webhook', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
-function log(entry) {
-  const line = JSON.stringify(entry);
-  // Console log for Railway logs
-  console.log(line);
-
-  // Additionally write to a local log file
-  try {
-    const logsDir = path.join(__dirname, '..', 'logs');
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    fs.appendFileSync(path.join(logsDir, 'app.log'), line + '\n', { encoding: 'utf8' });
-  } catch (e) {
-    // Avoid crashing on logging errors
-  }
-}
-
 app.listen(PORT, () => {
   log({
     level: 'info',

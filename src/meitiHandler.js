@@ -1,5 +1,5 @@
 const { fortytoolsClient } = require('./fortytoolsClient');
-const { log } = require('./server');
+const { log } = require('./logger');
 
 function normalizePhone(raw) {
   if (!raw) return null;
