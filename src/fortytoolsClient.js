@@ -28,11 +28,33 @@ class FortytoolsClient {
     return list;
   }
 
-  /** Gibt die ID des ersten Kundenstatus zurück (z. B. für neue Kunden), oder null wenn keine geladen. */
+  /**
+   * Wählt den Default-Kundenstatus für neue Kunden.
+   * Wunsch: Immer „KUNDE‼️“ (id 32774 in deinem System), falls vorhanden.
+   * Reihenfolge:
+   * 1. State mit id === 32774
+   * 2. State, dessen Name „KUNDE‼️“ enthält
+   * 3. Fallback: erster Eintrag aus der Liste
+   */
   getDefaultCustomerStateId() {
     if (!this._customerStatesCache || this._customerStatesCache.length === 0) return null;
-    const first = this._customerStatesCache[0];
-    return first != null && (first.id !== undefined) ? Number(first.id) : null;
+
+    const byName = (needle) =>
+      this._customerStatesCache.find(
+        (s) =>
+          s &&
+          typeof s.name === 'string' &&
+          s.name.toLowerCase().includes(needle.toLowerCase())
+      );
+
+    // 1. „KUNDE‼️“ mit fixer ID (32774)
+    let chosen = this._customerStatesCache.find((s) => s && Number(s.id) === 32774);
+    // 2. Fallback: irgendein State mit Namen „KUNDE‼️“
+    if (!chosen) chosen = byName('KUNDE‼️');
+    // 3. Fallback: erster Eintrag
+    if (!chosen) chosen = this._customerStatesCache[0];
+
+    return chosen && chosen.id !== undefined ? Number(chosen.id) : null;
   }
 
   async ensureAccessToken(requestId) {
@@ -258,14 +280,22 @@ class FortytoolsClient {
 
   /**
    * Erstellt eine Notiz/Timeline-Eintrag beim bestehenden Kunden (z. B. bei Meiti-Übertragung).
-   * Verwendet POST /events; bei anderem API-Schema (422) Logs prüfen und Payload anpassen.
+   * Verwendet das Event-Schema aus fortytools.yaml:
+   * - title: string
+   * - body: string
+   * - date: string (Format YYYY-MM-DD)
+   * - eventable_type: 'Customer'
+   * - eventable_id: Kunden-ID
    */
   async createCustomerNote(customerId, noteText, requestId) {
     if (!noteText || String(noteText).trim() === '') return;
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     const body = {
-      attachable_type: 'Customer',
-      attachable_id: Number(customerId),
-      text: String(noteText).trim()
+      title: 'Meiti-Übertragung',
+      body: String(noteText).trim(),
+      date: today,
+      eventable_type: 'Customer',
+      eventable_id: Number(customerId)
     };
     await this.request('POST', '/events', {
       requestId,
