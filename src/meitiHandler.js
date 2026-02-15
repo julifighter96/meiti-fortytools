@@ -1,10 +1,66 @@
 const { fortytoolsClient } = require('./fortytoolsClient');
 const { log } = require('./logger');
 
+// Event-Typen (eventType kann String oder Zahl sein)
+const EVENTS = {
+  MANUAL: ['Manual', 4, '4'],
+  INCOMING_CALL_LOOKUP: ['IncomingCallLookup'],
+  FINISHED_CALL: ['FinishedCall'],
+  NEW_CONVERSATION: ['NewConversation'],
+  CONVERSATION_PAUSED: ['ConversationPaused']
+};
+
+function isEvent(eventType, eventNames) {
+  return eventNames.includes(eventType);
+}
+
 function normalizePhone(raw) {
   if (!raw) return null;
   // Strip spaces, dashes, brackets etc. Keep leading +
   return raw.replace(/[^+\d]/g, '');
+}
+
+/** Prüft, ob contactData Mindestdaten für Neuanlage hat: Kontakt (phone/mobile/email) + Name (company oder firstName+lastName) */
+function hasMinimumDataForNewCustomer(contactData) {
+  if (!contactData) return false;
+  const phone = normalizePhone(contactData.phoneNumber);
+  const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
+  const email = (contactData.email || '').trim();
+  const hasContact = !!(phone || mobile || email);
+  const company = (contactData.company || '').trim();
+  const firstName = (contactData.firstName || '').trim();
+  const lastName = (contactData.lastName || '').trim();
+  const hasName = !!(company || (firstName && lastName));
+  return hasContact && hasName;
+}
+
+/** Prüft, ob Payload mindestens ein nicht-leeres, sinnvolles Feld für Update hat (außer customer_state). */
+function hasDataForUpdate(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  const skipKeys = ['customer_state_id', 'customer_state'];
+  return Object.keys(payload).some((k) => !skipKeys.includes(k) && payload[k] != null && payload[k] !== '');
+}
+
+/** Notiz-Text je nach Event-Typ */
+function buildNoteForEvent(eventType, contactData, projectData) {
+  const ts = new Date().toLocaleString('de-DE');
+  const planning = (projectData && (projectData.currentSummary || projectData.inquirySummary)) ||
+    (contactData && contactData.crmInternalInfo);
+  const planningStr = planning && String(planning).trim() ? `\n\n${String(planning).trim()}` : '';
+
+  if (isEvent(eventType, EVENTS.MANUAL)) {
+    return `Meiti-Übertragung am ${ts}${planningStr}`;
+  }
+  if (isEvent(eventType, EVENTS.FINISHED_CALL)) {
+    return `Anruf beendet am ${ts}${planningStr}`;
+  }
+  if (isEvent(eventType, EVENTS.NEW_CONVERSATION)) {
+    return `Chat wieder aufgenommen am ${ts}${planningStr}`;
+  }
+  if (isEvent(eventType, EVENTS.CONVERSATION_PAUSED)) {
+    return `Chat pausiert nach 10 Min Inaktivität am ${ts}${planningStr}`;
+  }
+  return `Meiti-Event am ${ts}${planningStr}`;
 }
 
 function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId) {
@@ -39,11 +95,11 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
     city: contactData.city || projectData.city || undefined,
     shortinfo: contactData.crmInternalInfo || undefined,
     planning_info: projectData.currentSummary || projectData.inquirySummary || undefined,
-    custom_attributes: {
-      meiti_contact_id: contactData.meitiContactId,
-      meiti_project_id: projectData.meitiProjectId
-    }
+    custom_attributes: {}
   };
+  if (contactData.meitiContactId != null) payload.custom_attributes.meiti_contact_id = contactData.meitiContactId;
+  if (projectData.meitiProjectId != null) payload.custom_attributes.meiti_project_id = projectData.meitiProjectId;
+  if (Object.keys(payload.custom_attributes).length === 0) delete payload.custom_attributes;
 
   // Remove undefined / null / leere Strings, damit bestehende Daten in Fortytools
   // nicht mit Leerwerten überschrieben werden.
@@ -57,19 +113,6 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   });
 
   return payload;
-}
-
-/** Inhalt für die Notiz bei bestehendem Kontakt (Meiti-Übertragung). */
-function buildNoteContentFromMeiti(contactData, projectData) {
-  const parts = [];
-  parts.push(`Meiti-Übertragung am ${new Date().toLocaleString('de-DE')}`);
-  const planning = (projectData && (projectData.currentSummary || projectData.inquirySummary)) ||
-    (contactData && contactData.crmInternalInfo);
-  if (planning && String(planning).trim()) {
-    parts.push('');
-    parts.push(String(planning).trim());
-  }
-  return parts.join('\n');
 }
 
 async function handleMeitiWebhook(req, res) {
@@ -93,9 +136,11 @@ async function handleMeitiWebhook(req, res) {
   const { eventType, contactData, projectData } = body;
 
   const isSupportedEvent =
-    eventType === 'Manual' ||
-    eventType === 4 ||
-    eventType === '4';
+    isEvent(eventType, EVENTS.MANUAL) ||
+    isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP) ||
+    isEvent(eventType, EVENTS.FINISHED_CALL) ||
+    isEvent(eventType, EVENTS.NEW_CONVERSATION) ||
+    isEvent(eventType, EVENTS.CONVERSATION_PAUSED);
 
   log({
     level: 'info',
@@ -107,7 +152,6 @@ async function handleMeitiWebhook(req, res) {
     meitiProjectId: projectData && projectData.meitiProjectId
   });
 
-  // For now we only process Manual triggers / type 4, as requested.
   if (!isSupportedEvent) {
     log({
       level: 'info',
@@ -116,35 +160,72 @@ async function handleMeitiWebhook(req, res) {
       reason: 'unsupported_event_type',
       eventType
     });
-
     return res.status(200).json({
       message: 'event_type_ignored',
-      supportedEventTypes: ['Manual', 4]
+      supportedEventTypes: ['Manual', 'IncomingCallLookup', 'FinishedCall', 'NewConversation', 'ConversationPaused']
     });
   }
 
+  // IncomingCallLookup: Nur Lesen (Fortytools → meiti), kein Schreiben
+  if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
+    try {
+      let responseBody = { requestContactUpdate: false, requestProjectUpdate: false };
+      if (contactData) {
+        const phone = normalizePhone(contactData.phoneNumber);
+        const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
+        const customerId = await fortytoolsClient.findCustomerByContact({
+          phone,
+          mobile: mobile || undefined,
+          email: contactData.email,
+          requestId
+        });
+        if (customerId != null) {
+          responseBody = {
+            requestContactUpdate: true,
+            contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools-Kontakt gefunden' },
+            requestProjectUpdate: false
+          };
+          log({ level: 'info', message: 'incoming_call_lookup_customer_found', requestId, customerId });
+        }
+      }
+      return res.status(200).json(responseBody);
+    } catch (err) {
+      log({ level: 'error', message: 'incoming_call_lookup_error', requestId, error: err && err.message });
+      return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
+    }
+  }
+
+  // Alle anderen Events brauchen contactData (mindestens zum Suchen)
   if (!contactData) {
-    log({
-      level: 'warn',
-      message: 'missing_contact_data',
-      requestId
-    });
+    log({ level: 'warn', message: 'missing_contact_data', requestId });
     return res.status(400).json({
       error: 'invalid_payload',
-      message: 'contactData is required for Manual event'
+      message: 'contactData is required'
     });
   }
 
   const phone = normalizePhone(contactData.phoneNumber);
   const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
-  const email = contactData.email;
+  const email = (contactData.email || '').trim();
+
+  const mayCreateNewCustomer =
+    isEvent(eventType, EVENTS.MANUAL) || isEvent(eventType, EVENTS.NEW_CONVERSATION);
+  const mustHaveSearchTerm = phone || mobile || email;
+
+  if (!mustHaveSearchTerm) {
+    log({ level: 'info', message: 'meiti_event_skipped_no_search_term', requestId, eventType });
+    return res.status(200).json({
+      requestContactUpdate: false,
+      requestProjectUpdate: false,
+      message: 'No phone or email to search for customer'
+    });
+  }
 
   try {
-    // === 1. Customer in Fortytools finden oder anlegen ===
     let customerId = await fortytoolsClient.findCustomerByContact({
       phone,
       mobile: mobile || undefined,
-      email,
+      email: email || undefined,
       requestId
     });
 
@@ -160,89 +241,69 @@ async function handleMeitiWebhook(req, res) {
 
     const customerPayload = buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId);
 
-    log({
-      level: 'info',
-      message: 'fortytools_customer_payload_built',
-      requestId,
-      customerPayload
-    });
-
     if (customerId) {
-      log({
-        level: 'info',
-        message: 'existing_customer_found',
-        requestId,
-        customerId
-      });
+      log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
-      await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
+      if (hasDataForUpdate(customerPayload)) {
+        await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
+      }
 
-      const noteContent = buildNoteContentFromMeiti(contactData, projectData);
-      try {
-        await fortytoolsClient.createCustomerNote(customerId, noteContent, requestId);
+      const noteContent = buildNoteForEvent(eventType, contactData, projectData);
+      if (noteContent && String(noteContent).trim()) {
+        try {
+          await fortytoolsClient.createCustomerNote(customerId, noteContent.trim(), requestId);
+          log({ level: 'info', message: 'customer_note_created', requestId, customerId });
+        } catch (noteErr) {
+          log({ level: 'warn', message: 'customer_note_failed', requestId, customerId, error: noteErr && noteErr.message });
+        }
+      }
+    } else if (mayCreateNewCustomer && hasMinimumDataForNewCustomer(contactData)) {
+      log({ level: 'info', message: 'creating_new_customer', requestId });
+      customerId = await fortytoolsClient.createCustomer(customerPayload, requestId);
+      log({ level: customerId != null ? 'info' : 'warn', message: 'customer_created', requestId, customerId });
+
+      if (customerId != null) {
+        const noteContent = buildNoteForEvent(eventType, contactData, projectData);
+        if (noteContent && String(noteContent).trim()) {
+          try {
+            await fortytoolsClient.createCustomerNote(customerId, noteContent.trim(), requestId);
+          } catch (_) {}
+        }
+      } else {
         log({
-          level: 'info',
-          message: 'customer_note_created',
+          level: 'error',
+          message: 'customer_created_but_id_missing',
           requestId,
-          customerId
+          hint: 'POST /customers war erfolgreich, aber die Kunden-ID konnte nicht ermittelt werden.'
         });
-      } catch (noteErr) {
-        log({
-          level: 'warn',
-          message: 'customer_note_failed',
-          requestId,
-          customerId,
-          error: noteErr && noteErr.message
+        return res.status(500).json({
+          error: 'processing_error',
+          message: 'Kunde wurde in Fortytools angelegt, Verknüpfung konnte nicht abgeschlossen werden (ID fehlt).'
         });
       }
     } else {
       log({
         level: 'info',
-        message: 'creating_new_customer',
-        requestId
-      });
-
-      customerId = await fortytoolsClient.createCustomer(customerPayload, requestId);
-
-      log({
-        level: customerId != null ? 'info' : 'warn',
-        message: 'customer_created',
+        message: 'meiti_event_no_customer_action',
         requestId,
-        customerId
+        eventType,
+        reason: customerId == null && !hasMinimumDataForNewCustomer(contactData)
+          ? 'no_existing_customer_and_insufficient_data_for_create'
+          : 'customer_not_found'
       });
-
-      if (customerId == null) {
-        log({
-          level: 'error',
-          message: 'customer_created_but_id_missing',
-          requestId,
-          hint: 'POST /customers war erfolgreich, aber die Kunden-ID konnte weder aus der Response noch per Suche ermittelt werden. Prüfe Fortytools-API-Response und Logs.'
-        });
-        return res.status(500).json({
-          error: 'processing_error',
-          message: 'Kunde wurde in Fortytools angelegt, Verknüpfung konnte nicht abgeschlossen werden (ID fehlt). Bitte Logs prüfen.'
-        });
-      }
+      return res.status(200).json({
+        requestContactUpdate: false,
+        requestProjectUpdate: false,
+        message: 'Customer not found and insufficient data for new customer (need phone/email + name)'
+      });
     }
 
-    // === 2. Antwort an meiti: nur crmContactId zurückgeben (keine Projekte/Objekte) ===
-    // Siehe meiti webhook docs: https://www.meiti.io/docs/webhook
     const responseBody = {
       requestContactUpdate: true,
-      contactData: {
-        crmContactId: String(customerId),
-        crmAiInfo: 'Fortytools Kunde verknüpft'
-      },
+      contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools Kunde verknüpft' },
       requestProjectUpdate: false
     };
-
-    log({
-      level: 'info',
-      message: 'meiti_response_payload',
-      requestId,
-      responseBody
-    });
-
+    log({ level: 'info', message: 'meiti_response_payload', requestId, responseBody });
     return res.status(200).json(responseBody);
   } catch (err) {
     log({

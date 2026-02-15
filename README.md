@@ -7,7 +7,17 @@ Die Implementierung orientiert sich an der meiti Webhook-Doku (`https://www.meit
 ### Funktionsumfang (Stand jetzt)
 
 - **Endpoint**: `POST /meiti/webhook`
-- **Verarbeitete Events**: aktuell nur `eventType = "Manual"` (manuell ausgelöster Webhook in meiti)
+- **Verarbeitete Events** (gemäß [meiti Webhook-Doku](https://meiti.app/docs/webhook)):
+
+  | Event | Aktion nach Fortytools |
+  |-------|------------------------|
+  | **Manual** | Vollständiger Sync: Kunde suchen/anlegen, Update, Notiz |
+  | **IncomingCallLookup** | Nur Lesen – Kunde per Rufnummer suchen und `crmContactId` an meiti zurückgeben (kein Schreiben) |
+  | **FinishedCall** | Kunde suchen, Notiz „Anruf beendet“, optional Update (kein neuer Kunde) |
+  | **NewConversation** | Kunde suchen/anlegen, Update, Notiz „Chat wieder aufgenommen“ |
+  | **ConversationPaused** | Kunde suchen, Notiz „Chat pausiert“, optional Update (kein neuer Kunde) |
+
+- **Datenregeln**: Es werden nie leere Daten übertragen. Neue Kunden werden nur angelegt, wenn mindestens ein Kontakt (Telefon/E-Mail) und ein Name (Firma oder Vor-/Nachname) vorliegen. Details siehe `docs/EVENT-KONZEPT.md`.
 - **Ablauf**:
   - Validierung des Bearer-Tokens aus dem `Authorization` Header (muss mit `MEITI_WEBHOOK_TOKEN` übereinstimmen)
   - Lesen von `contactData` und `projectData` aus dem meiti Payload
@@ -109,7 +119,6 @@ So siehst du, welche IDs in deiner Fortytools-Instanz existieren und ob der auto
 
 ### Weiterentwicklungsideen
 
-- Weitere meiti Events unterstützen (z.B. `IncomingCallLookup`, `FinishedCall` etc.).
 - Bessere Duplikat-Erkennung (z.B. zusätzliche Suche nach Namen + PLZ).
 - Bidirektionale Synchronisation über Fortytools eigene WebHooks (`/web_hooks` in der Fortytools API).
 
