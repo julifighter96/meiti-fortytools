@@ -259,7 +259,8 @@ async function handleMeitiWebhook(req, res) {
     if (customerId) {
       log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
-      if (hasDataForUpdate(customerPayload)) {
+      // Bei allen Events wie Manual: alle aus meiti erhaltenen Daten übertragen (Payload enthält nur nicht-leere Felder).
+      if (Object.keys(customerPayload).length > 0) {
         await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
       }
 
