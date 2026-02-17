@@ -95,7 +95,11 @@ Ohne diese Mindestdaten: **kein Kunde anlegen**, Event ignorieren oder nur Notiz
 ## 5. Implementierungs-Hinweise
 
 1. **Event-Erkennung:** `eventType` kann String oder Zahl sein; bekannte Werte prüfen:
-   - `Manual`, `4`, `IncomingCallLookup`, `FinishedCall`, `NewConversation`, `ConversationPaused`
+   - `IncomingCallLookup` bzw. `0`
+   - `FinishedCall` bzw. `1`
+   - `NewConversation` bzw. `2`
+   - `ConversationPaused` bzw. `3`
+   - `Manual` bzw. `4`
 2. **Hilfsfunktionen:**  
    - `hasMinimumDataForNewCustomer(contactData)`  
    - `hasDataForUpdate(payload)` (Payload nach build + Filterung)  

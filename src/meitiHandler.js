@@ -3,11 +3,17 @@ const { log } = require('./logger');
 
 // Event-Typen (eventType kann String oder Zahl sein)
 const EVENTS = {
+  // Meiti-Events:
+  // 0: IncomingCallLookup
+  // 1: FinishedCall
+  // 2: NewConversation
+  // 3: ConversationPaused
+  // 4: Manual
   MANUAL: ['Manual', 4, '4'],
-  INCOMING_CALL_LOOKUP: ['IncomingCallLookup'],
-  FINISHED_CALL: ['FinishedCall'],
-  NEW_CONVERSATION: ['NewConversation'],
-  CONVERSATION_PAUSED: ['ConversationPaused']
+  INCOMING_CALL_LOOKUP: ['IncomingCallLookup', 0, '0'],
+  FINISHED_CALL: ['FinishedCall', 1, '1'],
+  NEW_CONVERSATION: ['NewConversation', 2, '2'],
+  CONVERSATION_PAUSED: ['ConversationPaused', 3, '3']
 };
 
 function isEvent(eventType, eventNames) {
