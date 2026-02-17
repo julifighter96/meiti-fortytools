@@ -207,27 +207,36 @@ async function handleMeitiWebhook(req, res) {
   const phone = normalizePhone(contactData.phoneNumber);
   const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
   const email = (contactData.email || '').trim();
+  const crmCustomerIdRaw = contactData.crmContactId;
+  const crmCustomerId =
+    crmCustomerIdRaw != null && String(crmCustomerIdRaw).trim() !== ''
+      ? Number(crmCustomerIdRaw)
+      : null;
 
   const mayCreateNewCustomer =
     isEvent(eventType, EVENTS.MANUAL) || isEvent(eventType, EVENTS.NEW_CONVERSATION);
-  const mustHaveSearchTerm = phone || mobile || email;
+  const hasSearchTerm = phone || mobile || email;
 
-  if (!mustHaveSearchTerm) {
-    log({ level: 'info', message: 'meiti_event_skipped_no_search_term', requestId, eventType });
+  if (!crmCustomerId && !hasSearchTerm) {
+    log({ level: 'info', message: 'meiti_event_skipped_no_identifier', requestId, eventType });
     return res.status(200).json({
       requestContactUpdate: false,
       requestProjectUpdate: false,
-      message: 'No phone or email to search for customer'
+      message: 'No crmContactId, phone or email to identify customer'
     });
   }
 
   try {
-    let customerId = await fortytoolsClient.findCustomerByContact({
-      phone,
-      mobile: mobile || undefined,
-      email: email || undefined,
-      requestId
-    });
+    let customerId = crmCustomerId;
+
+    if (!customerId && hasSearchTerm) {
+      customerId = await fortytoolsClient.findCustomerByContact({
+        phone,
+        mobile: mobile || undefined,
+        email: email || undefined,
+        requestId
+      });
+    }
 
     await fortytoolsClient.ensureCustomerStatesLoaded(requestId);
     const customerStateId = fortytoolsClient.getDefaultCustomerStateId() ?? 1;
