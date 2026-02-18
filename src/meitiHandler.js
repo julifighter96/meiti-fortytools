@@ -205,33 +205,11 @@ async function handleMeitiWebhook(req, res) {
     });
   }
 
-  // IncomingCallLookup: Nur Lesen (Fortytools → meiti), kein Schreiben
+  // IncomingCallLookup: bewusst nicht verarbeiten – pro Anruf soll nur 1 Event zählen (FinishedCall).
+  // Wir antworten nur mit 200 OK, ohne Fortytools-Lookup und ohne contactData-Update.
   if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
-    try {
-      let responseBody = { requestContactUpdate: false, requestProjectUpdate: false };
-      if (contactData) {
-        const phone = normalizePhone(contactData.phoneNumber);
-        const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
-        const customerId = await fortytoolsClient.findCustomerByContact({
-          phone,
-          mobile: mobile || undefined,
-          email: contactData.email,
-          requestId
-        });
-        if (customerId != null) {
-          responseBody = {
-            requestContactUpdate: true,
-            contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools-Kontakt gefunden' },
-            requestProjectUpdate: false
-          };
-          log({ level: 'info', message: 'incoming_call_lookup_customer_found', requestId, customerId });
-        }
-      }
-      return res.status(200).json(responseBody);
-    } catch (err) {
-      log({ level: 'error', message: 'incoming_call_lookup_error', requestId, error: err && err.message });
-      return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
-    }
+    log({ level: 'info', message: 'incoming_call_lookup_ignored', requestId, reason: 'only_finished_call_processed_per_call' });
+    return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
   }
 
   // Alle anderen Events brauchen contactData (mindestens zum Suchen)
