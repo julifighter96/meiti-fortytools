@@ -204,7 +204,6 @@ async function handleMeitiWebhook(req, res) {
       supportedEventTypes: ['Manual', 'IncomingCallLookup', 'FinishedCall', 'NewConversation', 'ConversationPaused']
     });
   }
-
   // IncomingCallLookup: bewusst nicht verarbeiten – pro Anruf soll nur 1 Event zählen (FinishedCall).
   // Wir antworten nur mit 200 OK, ohne Fortytools-Lookup und ohne contactData-Update.
   if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
@@ -326,9 +325,15 @@ async function handleMeitiWebhook(req, res) {
       });
     }
 
+    // Zusammenfassung (wie in Fortytools-Notiz) an meiti zurückgeben, damit sie in meiti sichtbar ist
+    const summaryForMeiti = buildNoteForEvent(eventType, contactData, projectData);
+    const crmAiInfo = (summaryForMeiti && String(summaryForMeiti).trim())
+      ? String(summaryForMeiti).trim()
+      : 'Fortytools Kunde verknüpft';
+
     const responseBody = {
       requestContactUpdate: true,
-      contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools Kunde verknüpft' },
+      contactData: { crmContactId: String(customerId), crmAiInfo },
       requestProjectUpdate: false
     };
     log({ level: 'info', message: 'meiti_response_payload', requestId, responseBody });
