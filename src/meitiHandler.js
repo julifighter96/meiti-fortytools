@@ -158,11 +158,24 @@ async function handleMeitiWebhook(req, res) {
   const requestId = req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const webhookToken = process.env.MEITI_WEBHOOK_TOKEN;
 
+  const body = req.body || {};
+  const { eventType, contactData, projectData } = body;
+
   // Simple auth check like described in meiti docs: bearer token in Authorization header
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
 
   if (webhookToken && token !== webhookToken) {
+    // IncomingCallLookup soll immer "grün" sein (meiti zeigt sonst "Server antwortet nicht").
+    if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
+      log({
+        level: 'warn',
+        message: 'unauthorized_meiti_webhook_incoming_call_lookup_ignored',
+        requestId
+      });
+      return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
+    }
+
     log({
       level: 'warn',
       message: 'unauthorized_meiti_webhook',
@@ -170,9 +183,6 @@ async function handleMeitiWebhook(req, res) {
     });
     return res.status(401).json({ error: 'unauthorized' });
   }
-
-  const body = req.body || {};
-  const { eventType, contactData, projectData } = body;
 
   const isSupportedEvent =
     isEvent(eventType, EVENTS.MANUAL) ||
@@ -203,8 +213,7 @@ async function handleMeitiWebhook(req, res) {
       message: 'event_type_ignored',
       supportedEventTypes: ['Manual', 'IncomingCallLookup', 'FinishedCall', 'NewConversation', 'ConversationPaused']
     });
-  }
-  // IncomingCallLookup: bewusst nicht verarbeiten – pro Anruf soll nur 1 Event zählen (FinishedCall).
+  }  // IncomingCallLookup: bewusst nicht verarbeiten – pro Anruf soll nur 1 Event zählen (FinishedCall).
   // Wir antworten nur mit 200 OK, ohne Fortytools-Lookup und ohne contactData-Update.
   if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
     log({ level: 'info', message: 'incoming_call_lookup_ignored', requestId, reason: 'only_finished_call_processed_per_call' });
