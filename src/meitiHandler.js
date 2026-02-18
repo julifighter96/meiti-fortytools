@@ -121,6 +121,39 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   return payload;
 }
 
+/**
+ * Erstellt für bestehende Kunden ein Update-Payload OHNE Kontaktdaten.
+ * Es werden nur custom_attributes, planning_info und customer_state übertragen.
+ */
+function buildUpdatePayloadForExistingCustomer(contactData, projectData, customerStateId) {
+  if (!contactData) contactData = {};
+  if (!projectData) projectData = {};
+
+  const stateId = customerStateId != null ? Number(customerStateId) : 1;
+  const customerState = { id: stateId };
+
+  const payload = {
+    customer_state_id: stateId,
+    customer_state: customerState,
+    planning_info: projectData.currentSummary || projectData.inquirySummary || undefined,
+    custom_attributes: {}
+  };
+  if (contactData.meitiContactId != null) payload.custom_attributes.meiti_contact_id = contactData.meitiContactId;
+  if (projectData.meitiProjectId != null) payload.custom_attributes.meiti_project_id = projectData.meitiProjectId;
+  if (Object.keys(payload.custom_attributes).length === 0) delete payload.custom_attributes;
+
+  Object.keys(payload).forEach((key) => {
+    const val = payload[key];
+    if (val === undefined || val === null) {
+      delete payload[key];
+    } else if (typeof val === 'string' && val.trim() === '') {
+      delete payload[key];
+    }
+  });
+
+  return payload;
+}
+
 async function handleMeitiWebhook(req, res) {
   const requestId = req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const webhookToken = process.env.MEITI_WEBHOOK_TOKEN;
@@ -259,9 +292,10 @@ async function handleMeitiWebhook(req, res) {
     if (customerId) {
       log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
-      // Bei allen Events wie Manual: alle aus meiti erhaltenen Daten übertragen (Payload enthält nur nicht-leere Felder).
-      if (Object.keys(customerPayload).length > 0) {
-        await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
+      // Bei bestehenden Kunden niemals Kontaktdaten überschreiben – nur Verknüpfung + Status + planning_info.
+      const updatePayload = buildUpdatePayloadForExistingCustomer(contactData, projectData, customerStateId);
+      if (hasDataForUpdate(updatePayload)) {
+        await fortytoolsClient.updateCustomer(customerId, updatePayload, requestId);
       }
 
       const noteContent = buildNoteForEvent(eventType, contactData, projectData);
