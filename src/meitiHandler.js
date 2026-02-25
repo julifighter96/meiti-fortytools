@@ -87,6 +87,8 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   const stateId = customerStateId != null ? Number(customerStateId) : 1;
   const customerState = { id: stateId };
 
+  // shortinfo und planning_info werden nicht am Kunden gesetzt (Einsatzort-/Kurzinfo-Notizen in Fortytools).
+  // Die Meiti-Inhalte gehen nur in die Event-Notiz (createCustomerNote).
   const payload = {
     email: contactData.email || undefined,
     phone: phone || undefined,
@@ -99,8 +101,6 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
     street: contactData.addressLine1 || projectData.address || undefined,
     zip: contactData.postCode || projectData.postcode || undefined,
     city: contactData.city || projectData.city || undefined,
-    shortinfo: contactData.crmInternalInfo || undefined,
-    planning_info: projectData.currentSummary || projectData.inquirySummary || undefined,
     custom_attributes: {}
   };
   if (contactData.meitiContactId != null) payload.custom_attributes.meiti_contact_id = contactData.meitiContactId;

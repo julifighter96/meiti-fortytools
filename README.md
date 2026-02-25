@@ -97,6 +97,12 @@ GET /debug/fortytools-customer-states
 
 So siehst du, welche IDs in deiner Fortytools-Instanz existieren und ob der automatisch gewählte Status passt. Bei jedem Webhook-Aufruf wird zudem geloggt: `fortytools_customer_state_used` mit `customerStateId` und der Anzahl der geladenen Status.
 
+### Notizen: Büro notizen vs. Einsatzort notizen
+
+- **Am Kunden** werden **weder shortinfo noch planning_info** gesetzt (das wären in Fortytools Kurzinfo bzw. Einsatzort-Notizen). Meiti-Inhalte gehen nur in die Event-Notiz.
+
+- **Timeline-Notiz (POST /events):** Pro Vorgang wird eine **Event-Notiz** („Meiti-Übertragung“ inkl. Summary) angelegt. Optional: `FORTYTOOLS_OFFICE_NOTE_EVENT_TYPE_ID` setzen, falls Fortytools eine event_type_id für Büro notizen erwartet.
+
 ### Deployment bei Railway (Kurzüberblick)
 
 1. Neues Projekt bei Railway anlegen und dieses Git-Repository verbinden.
