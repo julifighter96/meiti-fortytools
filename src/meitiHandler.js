@@ -121,15 +121,61 @@ function buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId
   return payload;
 }
 
+/**
+ * Erstellt für bestehende Kunden ein Update-Payload OHNE Kontaktdaten.
+ * Es werden nur custom_attributes, planning_info und customer_state übertragen.
+ */
+function buildUpdatePayloadForExistingCustomer(contactData, projectData, customerStateId) {
+  if (!contactData) contactData = {};
+  if (!projectData) projectData = {};
+
+  const stateId = customerStateId != null ? Number(customerStateId) : 1;
+  const customerState = { id: stateId };
+
+  const payload = {
+    customer_state_id: stateId,
+    customer_state: customerState,
+    planning_info: projectData.currentSummary || projectData.inquirySummary || undefined,
+    custom_attributes: {}
+  };
+  if (contactData.meitiContactId != null) payload.custom_attributes.meiti_contact_id = contactData.meitiContactId;
+  if (projectData.meitiProjectId != null) payload.custom_attributes.meiti_project_id = projectData.meitiProjectId;
+  if (Object.keys(payload.custom_attributes).length === 0) delete payload.custom_attributes;
+
+  Object.keys(payload).forEach((key) => {
+    const val = payload[key];
+    if (val === undefined || val === null) {
+      delete payload[key];
+    } else if (typeof val === 'string' && val.trim() === '') {
+      delete payload[key];
+    }
+  });
+
+  return payload;
+}
+
 async function handleMeitiWebhook(req, res) {
   const requestId = req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const webhookToken = process.env.MEITI_WEBHOOK_TOKEN;
 
+  const body = req.body || {};
+  const { eventType, contactData, projectData } = body;
+
   // Simple auth check like described in meiti docs: bearer token in Authorization header
   const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
 
   if (webhookToken && token !== webhookToken) {
+    // IncomingCallLookup soll immer "grün" sein (meiti zeigt sonst "Server antwortet nicht").
+    if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
+      log({
+        level: 'warn',
+        message: 'unauthorized_meiti_webhook_incoming_call_lookup_ignored',
+        requestId
+      });
+      return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
+    }
+
     log({
       level: 'warn',
       message: 'unauthorized_meiti_webhook',
@@ -137,9 +183,6 @@ async function handleMeitiWebhook(req, res) {
     });
     return res.status(401).json({ error: 'unauthorized' });
   }
-
-  const body = req.body || {};
-  const { eventType, contactData, projectData } = body;
 
   const isSupportedEvent =
     isEvent(eventType, EVENTS.MANUAL) ||
@@ -170,35 +213,11 @@ async function handleMeitiWebhook(req, res) {
       message: 'event_type_ignored',
       supportedEventTypes: ['Manual', 'IncomingCallLookup', 'FinishedCall', 'NewConversation', 'ConversationPaused']
     });
-  }
-
-  // IncomingCallLookup: Nur Lesen (Fortytools → meiti), kein Schreiben
+  }  // IncomingCallLookup: bewusst nicht verarbeiten – pro Anruf soll nur 1 Event zählen (FinishedCall).
+  // Wir antworten nur mit 200 OK, ohne Fortytools-Lookup und ohne contactData-Update.
   if (isEvent(eventType, EVENTS.INCOMING_CALL_LOOKUP)) {
-    try {
-      let responseBody = { requestContactUpdate: false, requestProjectUpdate: false };
-      if (contactData) {
-        const phone = normalizePhone(contactData.phoneNumber);
-        const mobile = normalizePhone(contactData.mobileNumber || contactData.mobile || '');
-        const customerId = await fortytoolsClient.findCustomerByContact({
-          phone,
-          mobile: mobile || undefined,
-          email: contactData.email,
-          requestId
-        });
-        if (customerId != null) {
-          responseBody = {
-            requestContactUpdate: true,
-            contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools-Kontakt gefunden' },
-            requestProjectUpdate: false
-          };
-          log({ level: 'info', message: 'incoming_call_lookup_customer_found', requestId, customerId });
-        }
-      }
-      return res.status(200).json(responseBody);
-    } catch (err) {
-      log({ level: 'error', message: 'incoming_call_lookup_error', requestId, error: err && err.message });
-      return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
-    }
+    log({ level: 'info', message: 'incoming_call_lookup_ignored', requestId, reason: 'only_finished_call_processed_per_call' });
+    return res.status(200).json({ requestContactUpdate: false, requestProjectUpdate: false });
   }
 
   // Alle anderen Events brauchen contactData (mindestens zum Suchen)
@@ -259,9 +278,10 @@ async function handleMeitiWebhook(req, res) {
     if (customerId) {
       log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
-      // Bei allen Events wie Manual: alle aus meiti erhaltenen Daten übertragen (Payload enthält nur nicht-leere Felder).
-      if (Object.keys(customerPayload).length > 0) {
-        await fortytoolsClient.updateCustomer(customerId, customerPayload, requestId);
+      // Bei bestehenden Kunden niemals Kontaktdaten überschreiben – nur Verknüpfung + Status + planning_info.
+      const updatePayload = buildUpdatePayloadForExistingCustomer(contactData, projectData, customerStateId);
+      if (hasDataForUpdate(updatePayload)) {
+        await fortytoolsClient.updateCustomer(customerId, updatePayload, requestId);
       }
 
       const noteContent = buildNoteForEvent(eventType, contactData, projectData);
@@ -314,9 +334,15 @@ async function handleMeitiWebhook(req, res) {
       });
     }
 
+    // Zusammenfassung (wie in Fortytools-Notiz) an meiti zurückgeben, damit sie in meiti sichtbar ist
+    const summaryForMeiti = buildNoteForEvent(eventType, contactData, projectData);
+    const crmAiInfo = (summaryForMeiti && String(summaryForMeiti).trim())
+      ? String(summaryForMeiti).trim()
+      : 'Fortytools Kunde verknüpft';
+
     const responseBody = {
       requestContactUpdate: true,
-      contactData: { crmContactId: String(customerId), crmAiInfo: 'Fortytools Kunde verknüpft' },
+      contactData: { crmContactId: String(customerId), crmAiInfo },
       requestProjectUpdate: false
     };
     log({ level: 'info', message: 'meiti_response_payload', requestId, responseBody });
