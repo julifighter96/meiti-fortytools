@@ -200,6 +200,38 @@ class FortytoolsClient {
     return null;
   }
 
+  /**
+   * Sucht einen bestehenden Mitarbeiter (StaffMember) in Fortytools.
+   * Prüft nacheinander: Telefon (phone), Mobil (mobile), E-Mail.
+   * API: GET /search/global?q=<term>&types=StaffMember.
+   * Wird genutzt, um zu verhindern, dass für Mitarbeiter fälschlich Kunden angelegt werden.
+   */
+  async findStaffMemberByContact({ phone, mobile, email, requestId }) {
+    const terms = [phone, mobile, email].filter(Boolean);
+    const seen = new Set();
+    for (const term of terms) {
+      const key = String(term).trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+
+      const data = await this.request('GET', '/search/global', {
+        requestId,
+        params: {
+          q: key,
+          types: 'StaffMember'
+        }
+      });
+
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      const entry = data[0];
+      if (entry.searchable_type !== 'StaffMember') continue;
+
+      return entry.searchable_id;
+    }
+    return null;
+  }
+
   async getCustomer(customerId, requestId) {
     return this.request('GET', `/customers/${customerId}`, { requestId });
   }

@@ -275,6 +275,27 @@ async function handleMeitiWebhook(req, res) {
 
     const customerPayload = buildCustomerPayloadFromMeiti(contactData, projectData, customerStateId);
 
+    // Bevor wir einen neuen Kunden anlegen, prüfen wir, ob die Kontaktdaten zu einem Mitarbeiter gehören.
+    // Falls ja, wird KEIN Kunde angelegt.
+    let staffMemberId = null;
+    if (!customerId && hasSearchTerm) {
+      try {
+        staffMemberId = await fortytoolsClient.findStaffMemberByContact({
+          phone,
+          mobile: mobile || undefined,
+          email: email || undefined,
+          requestId
+        });
+      } catch (staffErr) {
+        log({
+          level: 'warn',
+          message: 'staff_member_lookup_failed',
+          requestId,
+          error: staffErr && staffErr.message
+        });
+      }
+    }
+
     if (customerId) {
       log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
@@ -293,6 +314,19 @@ async function handleMeitiWebhook(req, res) {
           log({ level: 'warn', message: 'customer_note_failed', requestId, customerId, error: noteErr && noteErr.message });
         }
       }
+    } else if (staffMemberId) {
+      // Telefonnummer/E-Mail gehört zu einem bestehenden Mitarbeiter: keinen Kunden anlegen.
+      log({
+        level: 'info',
+        message: 'matched_staff_member_no_customer_created',
+        requestId,
+        staffMemberId
+      });
+      return res.status(200).json({
+        requestContactUpdate: false,
+        requestProjectUpdate: false,
+        message: 'Contact matches existing staff member in Fortytools; customer not created'
+      });
     } else if (mayCreateNewCustomer && hasMinimumDataForNewCustomer(contactData)) {
       log({ level: 'info', message: 'creating_new_customer', requestId });
       customerId = await fortytoolsClient.createCustomer(customerPayload, requestId);
