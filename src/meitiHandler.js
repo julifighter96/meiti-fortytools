@@ -299,12 +299,6 @@ async function handleMeitiWebhook(req, res) {
     if (customerId) {
       log({ level: 'info', message: 'existing_customer_found', requestId, customerId });
 
-      // Bei bestehenden Kunden niemals Kontaktdaten überschreiben – nur Verknüpfung + Status + planning_info.
-      const updatePayload = buildUpdatePayloadForExistingCustomer(contactData, projectData, customerStateId);
-      if (hasDataForUpdate(updatePayload)) {
-        await fortytoolsClient.updateCustomer(customerId, updatePayload, requestId);
-      }
-
       const noteContent = buildNoteForEvent(eventType, contactData, projectData);
       if (noteContent && String(noteContent).trim()) {
         try {
